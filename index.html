@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Sistema de cadastro da Ação Social Pastoral.">
+  <title>Ação Social Pastoral</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <noscript>
+    <div class="noscript-message">Este sistema precisa do JavaScript habilitado para funcionar.</div>
+  </noscript>
+
+  <section id="login-screen" class="login-screen">
+    <div class="login-visual" aria-hidden="true">
+      <img
+        src="assets/igreja-santa-edwiges.jpg"
+        alt=""
+        onerror="this.classList.add('image-missing')"
+      >
+      <div class="login-visual-content">
+        <p>Acolher, cuidar e servir.</p>
+        <h2>Ação Social Pastoral</h2>
+      </div>
+    </div>
+
+    <main class="login-panel">
+      <div class="brand-lockup">
+        <div class="brand-marks" aria-hidden="true">
+          <span class="mark-frame">
+            <img src="assets/santa-edwiges.png" alt="" onerror="this.classList.add('image-missing')">
+          </span>
+          <span class="mark-frame">
+            <img src="assets/amigos-da-cruz.png" alt="" onerror="this.classList.add('image-missing')">
+          </span>
+        </div>
+        <p class="brand-overline">Acesso ao sistema</p>
+        <h1>Ação Social Pastoral</h1>
+        <p class="brand-copy">Entre com sua conta ou crie um novo acesso para usar o sistema.</p>
+      </div>
+
+      <div id="setup-alert" class="alert alert-warning" hidden>
+        A configuração do Firebase ainda não foi encontrada. Consulte o README para concluir a instalação.
+      </div>
+
+      <form id="login-form" class="login-form">
+        <div class="auth-mode-switcher" role="group" aria-label="Escolha o tipo de acesso">
+          <button class="auth-mode-button is-active" type="button" data-auth-mode="login">Entrar</button>
+          <button class="auth-mode-button" type="button" data-auth-mode="register">Criar conta</button>
+        </div>
+
+        <label for="login-email">E-mail</label>
+        <input id="login-email" name="email" type="email" autocomplete="username" required>
+
+        <label for="login-password">Senha</label>
+        <input id="login-password" name="password" type="password" minlength="6" autocomplete="current-password" required>
+
+        <div id="password-confirm-field" class="password-confirm-field" hidden>
+          <label for="login-password-confirm">Confirmar senha</label>
+          <input id="login-password-confirm" name="passwordConfirm" type="password" minlength="6" autocomplete="new-password">
+        </div>
+
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button id="login-button" class="button button-primary button-wide" type="submit">
+          Entrar no sistema
+        </button>
+      </form>
+
+      <p class="privacy-note">
+        Este sistema contém dados pessoais. Crie uma conta somente se você participa do atendimento pastoral.
+      </p>
+    </main>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <header class="app-header">
+      <div class="app-brand">
+        <div class="header-marks" aria-hidden="true">
+          <img src="assets/santa-edwiges.png" alt="" onerror="this.classList.add('image-missing')">
+          <img src="assets/amigos-da-cruz.png" alt="" onerror="this.classList.add('image-missing')">
+        </div>
+        <div>
+          <p>Ação Social Pastoral</p>
+          <span>Cadastro e acompanhamento familiar</span>
+        </div>
+      </div>
+
+      <div class="account-area">
+        <div class="account-copy">
+          <span>Conta conectada</span>
+          <strong id="user-email"></strong>
+        </div>
+        <button id="logout-button" class="button button-secondary" type="button">Sair</button>
+      </div>
+    </header>
+
+    <div class="church-banner">
+      <img
+        src="assets/igreja-santa-edwiges.jpg"
+        alt="Igreja da Paróquia Santa Edwiges"
+        onerror="this.classList.add('image-missing')"
+      >
+      <div class="church-banner-copy">
+        <span>Serviço pastoral</span>
+        <strong>Cadastro responsável e acolhimento com dignidade</strong>
+      </div>
+    </div>
+
+    <nav class="mobile-view-switcher" aria-label="Alternar área">
+      <button class="view-switcher-button is-active" type="button" data-view="form">Ficha</button>
+      <button class="view-switcher-button" type="button" data-view="list">Cadastros</button>
+    </nav>
+
+    <main class="workspace">
+      <section id="form-panel" class="form-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-number">Ficha de atendimento</p>
+            <h2 id="form-title">Novo cadastro</h2>
+          </div>
+          <button id="new-button" class="button button-secondary" type="button">Limpar ficha</button>
+        </div>
+
+        <form id="cadastro-form" autocomplete="off">
+          <input id="edit-id" type="hidden">
+
+          <fieldset>
+            <legend><span>01</span> Identificação</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Paróquia *</span>
+                <select id="paroquia" required>
+                  <option value="">Selecione</option>
+                  <option>Paróquia Santa Edwiges</option>
+                  <option>Paróquia Santa Cecília</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Comunidade *</span>
+                <input id="comunidade" type="text" list="comunidades" placeholder="Comunidade Amigos da Cruz" required>
+                <datalist id="comunidades">
+                  <option value="Comunidade Amigos da Cruz"></option>
+                </datalist>
+              </label>
+
+              <label class="field">
+                <span>Data do cadastro *</span>
+                <input id="data-cadastro" type="date" required>
+              </label>
+
+              <label class="field field-span-2">
+                <span>Nome completo *</span>
+                <input id="nome-completo" type="text" required>
+              </label>
+
+              <label class="field field-span-2">
+                <span>Endereço *</span>
+                <input id="endereco" type="text" required>
+              </label>
+
+              <label class="field">
+                <span>Data de nascimento *</span>
+                <input id="data-nascimento" type="date" required>
+              </label>
+
+              <label class="field">
+                <span>CPF *</span>
+                <input id="cpf" type="text" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" required>
+              </label>
+
+              <label class="field">
+                <span>Telefone *</span>
+                <input id="telefone" type="tel" inputmode="numeric" maxlength="15" placeholder="(00) 00000-0000" required>
+              </label>
+
+              <label class="field field-span-2">
+                <span>Responsável pelo cadastro *</span>
+                <input id="responsavel" type="text" required>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend><span>02</span> Composição familiar</legend>
+            <div class="form-grid form-grid-3">
+              <label class="field">
+                <span>Pessoas na casa *</span>
+                <input id="qtd-pessoas" type="number" min="1" required>
+              </label>
+              <label class="field">
+                <span>Adultos *</span>
+                <input id="qtd-adultos" type="number" min="0" required>
+              </label>
+              <label class="field">
+                <span>Crianças *</span>
+                <input id="qtd-criancas" type="number" min="0" required>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <div class="legend-row">
+              <legend><span>03</span> Crianças</legend>
+              <button id="add-child-button" class="button button-small button-secondary" type="button">Adicionar criança</button>
+            </div>
+            <div id="children-list" class="children-list">
+              <p id="children-empty" class="empty-inline">Nenhuma criança adicionada.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend><span>04</span> Observações</legend>
+            <label class="field">
+              <span>Informações importantes para o acompanhamento</span>
+              <textarea id="observacoes" rows="4"></textarea>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend><span>05</span> Controle mensal</legend>
+            <p class="field-help">Marque os meses em que a família recebeu atendimento.</p>
+            <div id="monthly-control" class="monthly-control"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend><span>06</span> Desligamento</legend>
+            <div class="form-grid">
+              <label class="field">
+                <span>Desligamento *</span>
+                <select id="desligamento" required>
+                  <option value="Não">Não</option>
+                  <option value="Sim">Sim</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Data do desligamento</span>
+                <input id="data-desligamento" type="date" disabled>
+              </label>
+              <label class="field field-span-2">
+                <span>Motivo do desligamento</span>
+                <textarea id="motivo-desligamento" rows="3" disabled></textarea>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button id="print-current-button" class="button button-secondary" type="button">Imprimir ficha</button>
+            <button id="save-button" class="button button-primary" type="submit">Salvar cadastro</button>
+          </div>
+        </form>
+      </section>
+
+      <aside id="list-panel" class="list-panel">
+        <div class="list-heading">
+          <div>
+            <p class="section-number">Pessoas atendidas</p>
+            <h2>Cadastros</h2>
+          </div>
+          <span id="records-count" class="records-count">0 registros</span>
+        </div>
+
+        <label class="search-field" for="search-input">
+          <span>Buscar por nome, CPF ou telefone</span>
+          <input id="search-input" type="search" placeholder="Digite para buscar">
+        </label>
+
+        <div id="list-status" class="list-status">Carregando cadastros...</div>
+        <div id="records-list" class="records-list" aria-live="polite"></div>
+      </aside>
+    </main>
+
+    <footer class="app-footer">
+      <p>Trate todos os dados com sigilo e responsabilidade.</p>
+    </footer>
+  </div>
+
+  <dialog id="delete-dialog" class="confirm-dialog">
+    <form method="dialog">
+      <h2>Excluir cadastro?</h2>
+      <p>Esta ação apaga o registro do Firestore e não pode ser desfeita.</p>
+      <div class="dialog-actions">
+        <button class="button button-secondary" value="cancel">Cancelar</button>
+        <button id="confirm-delete-button" class="button button-danger" value="confirm">Excluir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
