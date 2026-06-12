@@ -12,7 +12,7 @@ import {
   collection,
   deleteDoc,
   doc,
-  getFirestore,
+  initializeFirestore,
   onSnapshot,
   serverTimestamp,
   setDoc,
@@ -62,7 +62,7 @@ const listStatus = $("#list-status");
 const deleteDialog = $("#delete-dialog");
 const workspace = $(".workspace");
 const AUTH_TIMEOUT_MS = 10000;
-const DATABASE_TIMEOUT_MS = 8000;
+const DATABASE_TIMEOUT_MS = 20000;
 
 function normalizeText(value = "") {
   return String(value)
@@ -139,6 +139,17 @@ function readableAuthError(error) {
     return "O Firebase demorou para responder. Tente novamente em alguns segundos.";
   }
   return messages[error?.code] || "Não foi possível concluir o acesso. Verifique os dados e tente novamente.";
+}
+
+function readableFirestoreError(error, action = "salvar") {
+  const messages = {
+    "firestore/permission-denied": "Sua conta não tem permissão para acessar os cadastros.",
+    "firestore/unauthenticated": "Sua sessão expirou. Saia e entre novamente.",
+    "firestore/unavailable": "O banco está temporariamente indisponível. Verifique sua conexão.",
+    "firestore/failed-precondition": "O banco Firestore ainda não está configurado corretamente.",
+    "firestore/timeout": `Não foi possível confirmar a operação de ${action}. Verifique a consulta antes de repetir.`
+  };
+  return messages[error?.code] || `Não foi possível ${action}. Verifique a conexão e tente novamente.`;
 }
 
 function withTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS, timeoutCode = "auth/timeout") {
@@ -476,7 +487,7 @@ function subscribeToRecords() {
   listStatus.textContent = "Carregando cadastros...";
   state.recordsLoadTimer = window.setTimeout(() => {
     if (listStatus.textContent === "Carregando cadastros...") {
-      listStatus.textContent = "O banco demorou para responder. Verifique a conexão e as regras do Firestore.";
+      listStatus.textContent = "Não foi possível carregar a consulta. Verifique sua conexão e tente novamente.";
     }
   }, DATABASE_TIMEOUT_MS);
 
@@ -493,8 +504,8 @@ function subscribeToRecords() {
       window.clearTimeout(state.recordsLoadTimer);
       console.error("Falha ao ler os cadastros:", error.code);
       listStatus.hidden = false;
-      listStatus.textContent = "Não foi possível carregar os cadastros. Verifique as regras de acesso.";
-      showToast("Acesso ao Firestore negado. Confira as Security Rules.", true);
+      listStatus.textContent = readableFirestoreError(error, "carregar os cadastros");
+      showToast(readableFirestoreError(error, "carregar os cadastros"), true);
     }
   );
 }
@@ -511,7 +522,10 @@ async function initializeFirebase() {
 
     const firebaseApp = initializeApp(config);
     state.auth = getAuth(firebaseApp);
-    state.db = getFirestore(firebaseApp);
+    state.db = initializeFirestore(firebaseApp, {
+      experimentalAutoDetectLongPolling: true,
+      useFetchStreams: false
+    });
 
     // Mantém a sessão somente nesta aba; cadastros continuam exclusivamente no Firestore.
     await setPersistence(state.auth, browserSessionPersistence);
@@ -688,13 +702,10 @@ cadastroForm.addEventListener("submit", async (event) => {
     }
   } catch (error) {
     console.error("Falha ao salvar cadastro:", error.code);
-    const message = error?.code === "firestore/timeout"
-      ? "O banco demorou para responder. O botão foi liberado; confira a consulta antes de tentar novamente."
-      : "Não foi possível salvar. Verifique a conexão e as regras do Firestore.";
     if (error?.code !== "firestore/timeout" && !editId) {
       state.pendingCreateRef = null;
     }
-    showToast(message, true);
+    showToast(readableFirestoreError(error, "salvar o cadastro"), true);
   } finally {
     setBusy(saveButton, false, "Salvando...", defaultSaveText);
   }
@@ -718,7 +729,7 @@ deleteDialog.addEventListener("close", async () => {
     showToast("Cadastro excluído.");
   } catch (error) {
     console.error("Falha ao excluir cadastro:", error.code);
-    showToast("Não foi possível excluir o cadastro.", true);
+    showToast(readableFirestoreError(error, "excluir o cadastro"), true);
   }
 });
 
