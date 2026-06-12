@@ -845,6 +845,10 @@ legend span {
   display: none;
 }
 
+.mobile-only-button {
+  display: none;
+}
+
 @media (max-width: 1050px) {
   .workspace {
     grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.7fr);
@@ -900,6 +904,9 @@ legend span {
   }
 
   .mobile-view-switcher {
+    position: sticky;
+    z-index: 12;
+    top: 8px;
     width: min(100% - 32px, 560px);
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -909,6 +916,7 @@ legend span {
     border: 1px solid var(--line);
     border-radius: 9px;
     background: white;
+    box-shadow: 0 8px 20px rgba(26, 58, 48, 0.12);
   }
 
   .view-switcher-button {
@@ -954,6 +962,10 @@ legend span {
 
   .list-panel {
     padding: 20px;
+  }
+
+  .mobile-only-button {
+    display: inline-flex;
   }
 }
 

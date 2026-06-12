@@ -9,13 +9,13 @@ import {
   signOut
 } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
   getFirestore,
   onSnapshot,
   serverTimestamp,
+  setDoc,
   updateDoc
 } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
@@ -39,7 +39,9 @@ const state = {
   db: null,
   records: [],
   unsubscribe: null,
+  recordsLoadTimer: null,
   deleteId: null,
+  pendingCreateRef: null,
   toastTimer: null,
   authMode: "login"
 };
@@ -60,6 +62,7 @@ const listStatus = $("#list-status");
 const deleteDialog = $("#delete-dialog");
 const workspace = $(".workspace");
 const AUTH_TIMEOUT_MS = 10000;
+const DATABASE_TIMEOUT_MS = 8000;
 
 function normalizeText(value = "") {
   return String(value)
@@ -138,12 +141,12 @@ function readableAuthError(error) {
   return messages[error?.code] || "Não foi possível concluir o acesso. Verifique os dados e tente novamente.";
 }
 
-function withTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS) {
+function withTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS, timeoutCode = "auth/timeout") {
   let timeoutId;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = window.setTimeout(() => {
         const error = new Error("Tempo limite excedido");
-        error.code = "auth/timeout";
+        error.code = timeoutCode;
         reject(error);
     }, timeoutMs);
   });
@@ -342,7 +345,13 @@ function resetForm() {
   setDisconnectionFields();
 }
 
+function resetAsNewForm() {
+  state.pendingCreateRef = null;
+  resetForm();
+}
+
 function populateForm(record) {
+  state.pendingCreateRef = null;
   $("#edit-id").value = record.id;
   $("#form-title").textContent = "Editar cadastro";
   $("#save-button").textContent = "Atualizar cadastro";
@@ -462,18 +471,26 @@ function renderRecords() {
 
 function subscribeToRecords() {
   state.unsubscribe?.();
+  window.clearTimeout(state.recordsLoadTimer);
   listStatus.hidden = false;
   listStatus.textContent = "Carregando cadastros...";
+  state.recordsLoadTimer = window.setTimeout(() => {
+    if (listStatus.textContent === "Carregando cadastros...") {
+      listStatus.textContent = "O banco demorou para responder. Verifique a conexão e as regras do Firestore.";
+    }
+  }, DATABASE_TIMEOUT_MS);
 
   state.unsubscribe = onSnapshot(
     collection(state.db, "cadastros"),
     (snapshot) => {
+      window.clearTimeout(state.recordsLoadTimer);
       state.records = snapshot.docs
         .map((recordDoc) => ({ id: recordDoc.id, ...recordDoc.data() }))
         .sort((a, b) => normalizeText(a.nomeCompleto).localeCompare(normalizeText(b.nomeCompleto), "pt-BR"));
       renderRecords();
     },
     (error) => {
+      window.clearTimeout(state.recordsLoadTimer);
       console.error("Falha ao ler os cadastros:", error.code);
       listStatus.hidden = false;
       listStatus.textContent = "Não foi possível carregar os cadastros. Verifique as regras de acesso.";
@@ -503,6 +520,7 @@ async function initializeFirebase() {
       if (!user) {
         state.unsubscribe?.();
         state.unsubscribe = null;
+        window.clearTimeout(state.recordsLoadTimer);
         state.records = [];
         loginScreen.hidden = false;
         appShell.hidden = true;
@@ -520,7 +538,7 @@ async function initializeFirebase() {
       loginScreen.hidden = true;
       appShell.hidden = false;
       showLoginError("");
-      resetForm();
+      resetAsNewForm();
 
       // Abre a interface imediatamente; o Firestore carrega em segundo plano.
       subscribeToRecords();
@@ -543,6 +561,11 @@ function setMobileView(view) {
   document.querySelectorAll(".view-switcher-button").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
+}
+
+function openRecordsOnMobile() {
+  setMobileView("list");
+  $(".mobile-view-switcher").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 loginForm.addEventListener("submit", async (event) => {
@@ -584,7 +607,7 @@ document.querySelectorAll(".auth-mode-button").forEach((button) => {
 $("#logout-button").addEventListener("click", async () => {
   if (!state.auth) return;
   await signOut(state.auth);
-  resetForm();
+  resetAsNewForm();
   setAuthMode("login");
 });
 
@@ -598,8 +621,9 @@ $("#telefone").addEventListener("input", (event) => {
 
 $("#desligamento").addEventListener("change", setDisconnectionFields);
 $("#add-child-button").addEventListener("click", () => createChildRow());
-$("#new-button").addEventListener("click", resetForm);
+$("#new-button").addEventListener("click", resetAsNewForm);
 $("#print-current-button").addEventListener("click", () => window.print());
+$("#open-records-button").addEventListener("click", openRecordsOnMobile);
 $("#search-input").addEventListener("input", renderRecords);
 
 document.querySelectorAll(".view-switcher-button").forEach((button) => {
@@ -625,33 +649,54 @@ cadastroForm.addEventListener("submit", async (event) => {
 
   const saveButton = $("#save-button");
   const editId = $("#edit-id").value;
-  setBusy(saveButton, true, "Salvando...", editId ? "Atualizar cadastro" : "Salvar cadastro");
+  const defaultSaveText = editId ? "Atualizar cadastro" : "Salvar cadastro";
+  setBusy(saveButton, true, "Salvando...", defaultSaveText);
 
   try {
     const payload = getFormData();
     if (editId) {
-      await updateDoc(doc(state.db, "cadastros", editId), {
-        ...payload,
-        atualizadoEm: serverTimestamp(),
-        atualizadoPor: state.auth.currentUser?.email || ""
-      });
+      await withTimeout(
+        updateDoc(doc(state.db, "cadastros", editId), {
+          ...payload,
+          atualizadoEm: serverTimestamp(),
+          atualizadoPor: state.auth.currentUser?.email || ""
+        }),
+        DATABASE_TIMEOUT_MS,
+        "firestore/timeout"
+      );
       showToast("Cadastro atualizado com sucesso.");
     } else {
-      await addDoc(collection(state.db, "cadastros"), {
-        ...payload,
-        criadoEm: serverTimestamp(),
-        criadoPor: state.auth.currentUser?.email || "",
-        atualizadoEm: serverTimestamp(),
-        atualizadoPor: state.auth.currentUser?.email || ""
-      });
+      const newRecordRef = state.pendingCreateRef || doc(collection(state.db, "cadastros"));
+      state.pendingCreateRef = newRecordRef;
+      await withTimeout(
+        setDoc(newRecordRef, {
+          ...payload,
+          criadoEm: serverTimestamp(),
+          criadoPor: state.auth.currentUser?.email || "",
+          atualizadoEm: serverTimestamp(),
+          atualizadoPor: state.auth.currentUser?.email || ""
+        }),
+        DATABASE_TIMEOUT_MS,
+        "firestore/timeout"
+      );
+      state.pendingCreateRef = null;
       showToast("Cadastro salvo com sucesso.");
     }
     resetForm();
+    if (window.matchMedia("(max-width: 820px)").matches) {
+      openRecordsOnMobile();
+    }
   } catch (error) {
     console.error("Falha ao salvar cadastro:", error.code);
-    showToast("Não foi possível salvar. Verifique a conexão e as regras do Firestore.", true);
+    const message = error?.code === "firestore/timeout"
+      ? "O banco demorou para responder. O botão foi liberado; confira a consulta antes de tentar novamente."
+      : "Não foi possível salvar. Verifique a conexão e as regras do Firestore.";
+    if (error?.code !== "firestore/timeout" && !editId) {
+      state.pendingCreateRef = null;
+    }
+    showToast(message, true);
   } finally {
-    setBusy(saveButton, false, "Salvando...", $("#edit-id").value ? "Atualizar cadastro" : "Salvar cadastro");
+    setBusy(saveButton, false, "Salvando...", defaultSaveText);
   }
 });
 
@@ -664,7 +709,11 @@ deleteDialog.addEventListener("close", async () => {
   const id = state.deleteId;
   state.deleteId = null;
   try {
-    await deleteDoc(doc(state.db, "cadastros", id));
+    await withTimeout(
+      deleteDoc(doc(state.db, "cadastros", id)),
+      DATABASE_TIMEOUT_MS,
+      "firestore/timeout"
+    );
     if ($("#edit-id").value === id) resetForm();
     showToast("Cadastro excluído.");
   } catch (error) {
