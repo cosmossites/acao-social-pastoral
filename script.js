@@ -1,3 +1,9 @@
+// script.js
+// Este arquivo concentra a lógica do sistema: login, formulário, Firestore,
+// busca, edição, exclusão, impressão e adaptação para celular.
+// No JavaScript usamos // ou /* ... */ para comentar; <!-- ... --> é usado no HTML.
+
+// 1. Importações do Firebase usadas direto pelo navegador via CDN.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
 import {
   browserSessionPersistence,
@@ -6,7 +12,8 @@ import {
   onAuthStateChanged,
   setPersistence,
   signInWithEmailAndPassword,
-  signOut
+  signOut,
+  updateProfile
 } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
 import {
   collection,
@@ -19,6 +26,7 @@ import {
   updateDoc
 } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js";
 
+// 2. Meses exibidos no controle mensal da ficha.
 const months = [
   ["janeiro", "Janeiro"],
   ["fevereiro", "Fevereiro"],
@@ -34,10 +42,15 @@ const months = [
   ["dezembro", "Dezembro"]
 ];
 
+// 3. Estado geral da aplicação.
+// Ele guarda dados temporários da tela, mas não salva dados pessoais no navegador.
 const state = {
   auth: null,
   db: null,
   records: [],
+  recordsLoaded: false,
+  currentUserRole: "normal",
+  pendingProfileRole: null,
   unsubscribe: null,
   recordsLoadTimer: null,
   deleteId: null,
@@ -46,6 +59,7 @@ const state = {
   authMode: "login"
 };
 
+// 4. Atalhos para elementos HTML usados várias vezes no código.
 const $ = (selector) => document.querySelector(selector);
 const loginScreen = $("#login-screen");
 const appShell = $("#app-shell");
@@ -54,6 +68,7 @@ const loginButton = $("#login-button");
 const loginError = $("#login-error");
 const setupAlert = $("#setup-alert");
 const passwordConfirmField = $("#password-confirm-field");
+const ownerCodeField = $("#owner-code-field");
 const cadastroForm = $("#cadastro-form");
 const childrenList = $("#children-list");
 const childrenEmpty = $("#children-empty");
@@ -63,7 +78,12 @@ const deleteDialog = $("#delete-dialog");
 const workspace = $(".workspace");
 const AUTH_TIMEOUT_MS = 10000;
 const DATABASE_TIMEOUT_MS = 20000;
+const LARGE_ERROR_DURATION_MS = 9500;
+const OWNER_ACCESS_CODE = "igreja120131";
+const ROLE_NORMAL = "normal";
+const ROLE_ADMIN = "admin";
 
+// 5. Funções auxiliares de texto, máscara e data.
 function normalizeText(value = "") {
   return String(value)
     .normalize("NFD")
@@ -102,6 +122,7 @@ function localDateString() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
+// 6. Funções de feedback visual para botões, erros e mensagens temporárias.
 function setBusy(button, busy, busyText, defaultText) {
   button.disabled = busy;
   button.textContent = busy ? busyText : defaultText;
@@ -112,17 +133,27 @@ function showLoginError(message) {
   loginError.hidden = !message;
 }
 
-function showToast(message, isError = false) {
+function showToast(message, isError = false, options = {}) {
   const toast = $("#toast");
+  const isLarge = Boolean(options.large);
+  const duration = options.duration || (isLarge ? LARGE_ERROR_DURATION_MS : 4200);
+
   window.clearTimeout(state.toastTimer);
   toast.textContent = message;
   toast.classList.toggle("is-error", isError);
+  toast.classList.toggle("is-large-error", isLarge);
   toast.hidden = false;
   state.toastTimer = window.setTimeout(() => {
     toast.hidden = true;
-  }, 4200);
+    toast.classList.remove("is-large-error");
+  }, duration);
 }
 
+function showLargeError(message) {
+  showToast(message, true, { large: true });
+}
+
+// 7. Tradução dos erros técnicos do Firebase para mensagens simples ao usuário.
 function readableAuthError(error) {
   const messages = {
     "auth/email-already-in-use": "Este e-mail já possui uma conta. Use a opção Entrar.",
@@ -152,6 +183,7 @@ function readableFirestoreError(error, action = "salvar") {
   return messages[error?.code] || `Não foi possível ${action}. Verifique a conexão e tente novamente.`;
 }
 
+// 8. Limite de espera para evitar botão travado quando a internet ou Firebase demora.
 function withTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS, timeoutCode = "auth/timeout") {
   let timeoutId;
   const timeoutPromise = new Promise((_, reject) => {
@@ -167,13 +199,82 @@ function withTimeout(promise, timeoutMs = AUTH_TIMEOUT_MS, timeoutCode = "auth/t
   });
 }
 
+function validateOwnerAccessCode(code) {
+  if (code === OWNER_ACCESS_CODE) {
+    return true;
+  }
+
+  showLoginError("Código de Administrador incorreto. Crie uma conta normal ou peça o código correto.");
+  showLargeError(
+    "CRIAÇÃO DE ADMINISTRADOR BLOQUEADA: somente quem tem o código da igreja pode criar uma conta com acesso total."
+  );
+  return false;
+}
+
+function isRegisterMode(mode = state.authMode) {
+  return mode === "register-normal" || mode === "register-admin";
+}
+
+function authModeRole(mode = state.authMode) {
+  return mode === "register-admin" ? ROLE_ADMIN : ROLE_NORMAL;
+}
+
+function roleLabel(role = state.currentUserRole) {
+  return role === ROLE_ADMIN ? "Administrador" : "Pessoa normal";
+}
+
+function isAdmin() {
+  return state.currentUserRole === ROLE_ADMIN;
+}
+
+function roleFromUser(user) {
+  return user?.displayName === ROLE_ADMIN ? ROLE_ADMIN : ROLE_NORMAL;
+}
+
+async function saveUserRole(user, role) {
+  if (!user || user.displayName === role) return;
+  await withTimeout(updateProfile(user, { displayName: role }), AUTH_TIMEOUT_MS, "auth/timeout");
+}
+
+function applyAccessLevel(role) {
+  state.currentUserRole = role;
+  document.body.dataset.accessRole = role;
+  $("#user-role").textContent = roleLabel(role);
+
+  const notice = $("#role-notice");
+  notice.hidden = false;
+  notice.textContent = isAdmin()
+    ? "Acesso de Administrador: você pode cadastrar, consultar, editar, imprimir e excluir registros."
+    : "Acesso normal: você pode preencher e salvar uma ficha. Consultar, editar e excluir cadastros fica liberado somente para Administradores.";
+
+  if (!isAdmin()) {
+    setMobileView("form");
+  }
+}
+
+// 9. Alterna a tela entre "Entrar", "Pessoa normal" e "Administrador".
 function setAuthMode(mode) {
   state.authMode = mode;
-  const isRegister = mode === "register";
+  const isRegister = isRegisterMode(mode);
+  const isOwnerRegister = mode === "register-admin";
+
   passwordConfirmField.hidden = !isRegister;
+  ownerCodeField.hidden = !isOwnerRegister;
   $("#login-password-confirm").required = isRegister;
+  $("#owner-code").required = isOwnerRegister;
   $("#login-password").autocomplete = isRegister ? "new-password" : "current-password";
-  loginButton.textContent = isRegister ? "Criar conta e entrar" : "Entrar no sistema";
+  $("#login-password-label").textContent = isRegister ? "Criar senha" : "Senha";
+  $("#password-confirm-label").textContent = "Confirmar senha";
+  $("#auth-help").textContent = mode === "login"
+    ? "Entre usando a senha da sua própria conta."
+    : isOwnerRegister
+      ? "Conta de Administrador tem acesso total. Use o código da igreja apenas nesta criação."
+      : "Conta normal pode preencher e salvar fichas, mas não consulta nem altera todos os cadastros.";
+  loginButton.textContent = mode === "login"
+    ? "Entrar no sistema"
+    : isOwnerRegister
+      ? "Criar conta de Administrador"
+      : "Criar conta normal";
   showLoginError("");
 
   document.querySelectorAll(".auth-mode-button").forEach((button) => {
@@ -181,6 +282,7 @@ function setAuthMode(mode) {
   });
 }
 
+// 10. Cria os checkboxes dos meses por JavaScript para evitar repetição no HTML.
 function renderMonths() {
   const container = $("#monthly-control");
   months.forEach(([key, label]) => {
@@ -200,6 +302,7 @@ function renderMonths() {
   });
 }
 
+// 11. Funções da lista dinâmica de crianças.
 function childCount() {
   return childrenList.querySelectorAll(".child-row").length;
 }
@@ -280,6 +383,7 @@ function clearChildren() {
   updateChildrenState();
 }
 
+// 12. Ativa ou desativa os campos de desligamento conforme a resposta Sim/Não.
 function setDisconnectionFields() {
   const isDisconnected = $("#desligamento").value === "Sim";
   const reason = $("#motivo-desligamento");
@@ -301,6 +405,7 @@ function getMonthlyControl() {
   );
 }
 
+// 13. Valida se a composição familiar está coerente antes de salvar.
 function validateFamilyCounts() {
   const people = Number($("#qtd-pessoas").value);
   const adults = Number($("#qtd-adultos").value);
@@ -319,11 +424,15 @@ function validateFamilyCounts() {
   return true;
 }
 
+// 14. Junta todos os campos do formulário em um objeto pronto para o Firestore.
 function getFormData() {
   const nomeCompleto = $("#nome-completo").value.trim();
+  const paroquiaComunidade = $("#paroquia-comunidade").value;
+
   return {
-    paroquia: $("#paroquia").value,
-    comunidade: $("#comunidade").value.trim(),
+    paroquia: paroquiaComunidade,
+    comunidade: "",
+    paroquiaComunidade,
     dataCadastro: $("#data-cadastro").value,
     nomeCompleto,
     nomeBusca: normalizeText(nomeCompleto),
@@ -346,6 +455,61 @@ function getFormData() {
   };
 }
 
+function recordPlace(record) {
+  return record.paroquiaComunidade || record.paroquia || record.comunidade || "local não informado";
+}
+
+function validateUniquePersonRegistration(payload, editId) {
+  if (!state.recordsLoaded) {
+    showLargeError(
+      "AGUARDE: a lista de cadastros ainda está carregando. Para evitar cadastro duplicado, tente salvar novamente em alguns segundos."
+    );
+    return false;
+  }
+
+  const originalRecord = editId ? findRecord(editId) : null;
+  if (originalRecord?.paroquia && originalRecord.paroquia !== payload.paroquia) {
+    showLargeError(
+      `TROCA DE PARÓQUIA / COMUNIDADE BLOQUEADA: este cadastro já pertence à ${originalRecord.paroquia}. Não é permitido mover a mesma pessoa para ${payload.paroquia}.`
+    );
+    return false;
+  }
+
+  const cpfDigits = payload.cpfBusca || onlyDigits(payload.cpf);
+  const nameKey = payload.nomeBusca || normalizeText(payload.nomeCompleto);
+
+  const recordWithSameCpf = state.records.find((record) => {
+    const recordCpf = record.cpfBusca || onlyDigits(record.cpf);
+    return record.id !== editId && cpfDigits && recordCpf === cpfDigits;
+  });
+
+  if (recordWithSameCpf) {
+    showLargeError(
+      `CADASTRO DUPLICADO: este CPF já está cadastrado para ${recordWithSameCpf.nomeCompleto || "outra pessoa"} em ${recordPlace(recordWithSameCpf)}. Cada pessoa só pode ter um cadastro.`
+    );
+    return false;
+  }
+
+  const recordWithSameName = state.records.find((record) => {
+    const recordName = record.nomeBusca || normalizeText(record.nomeCompleto);
+    return (
+      record.id !== editId &&
+      nameKey &&
+      recordName === nameKey
+    );
+  });
+
+  if (recordWithSameName) {
+    showLargeError(
+      `CADASTRO DUPLICADO: já existe um cadastro com o nome ${recordWithSameName.nomeCompleto || payload.nomeCompleto} em ${recordPlace(recordWithSameName)}. Cada pessoa só pode ser cadastrada uma única vez.`
+    );
+    return false;
+  }
+
+  return true;
+}
+
+// 15. Controle do formulário: limpar, novo cadastro e carregar dados para edição.
 function resetForm() {
   cadastroForm.reset();
   $("#edit-id").value = "";
@@ -362,12 +526,13 @@ function resetAsNewForm() {
 }
 
 function populateForm(record) {
+  const paroquiaComunidade = record.paroquiaComunidade || record.paroquia || record.comunidade || "";
+
   state.pendingCreateRef = null;
   $("#edit-id").value = record.id;
   $("#form-title").textContent = "Editar cadastro";
   $("#save-button").textContent = "Atualizar cadastro";
-  $("#paroquia").value = record.paroquia || "";
-  $("#comunidade").value = record.comunidade || "";
+  $("#paroquia-comunidade").value = paroquiaComunidade;
   $("#data-cadastro").value = record.dataCadastro || "";
   $("#nome-completo").value = record.nomeCompleto || "";
   $("#endereco").value = record.endereco || "";
@@ -394,6 +559,8 @@ function populateForm(record) {
   setDisconnectionFields();
 }
 
+// 16. Funções para montar a lista de cadastros na tela sem usar innerHTML.
+// Isso evita colocar HTML manualmente e reduz risco ao exibir dados digitados.
 function createTextElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
@@ -406,6 +573,11 @@ function findRecord(id) {
 }
 
 function editRecord(id, printAfter = false) {
+  if (!isAdmin()) {
+    showToast("Editar ou imprimir cadastros salvos é permitido somente para contas de Administrador.", true);
+    return;
+  }
+
   const record = findRecord(id);
   if (!record) return;
   populateForm(record);
@@ -425,8 +597,17 @@ function makeRecordAction(label, action, isDanger = false) {
   return button;
 }
 
+// 17. Renderiza os cadastros e aplica busca por nome, CPF ou telefone.
 function renderRecords() {
   recordsList.replaceChildren();
+
+  if (!isAdmin()) {
+    $("#records-count").textContent = "Acesso normal";
+    listStatus.hidden = false;
+    listStatus.textContent = "Consulta disponível somente para contas de Administrador.";
+    return;
+  }
+
   const search = normalizeText($("#search-input").value);
   const searchDigits = onlyDigits($("#search-input").value);
 
@@ -459,7 +640,7 @@ function renderRecords() {
     const meta = document.createElement("div");
     meta.className = "record-meta";
     meta.append(
-      createTextElement("span", "", record.comunidade || record.paroquia || "Comunidade não informada"),
+      createTextElement("span", "", record.paroquiaComunidade || record.paroquia || record.comunidade || "Paróquia / Comunidade não informada"),
       createTextElement("span", "", `CPF: ${record.cpf || "não informado"}`),
       createTextElement("span", "", `Telefone: ${record.telefone || "não informado"}`)
     );
@@ -480,9 +661,11 @@ function renderRecords() {
   });
 }
 
+// 18. Abre uma escuta em tempo real da coleção "cadastros" no Firestore.
 function subscribeToRecords() {
   state.unsubscribe?.();
   window.clearTimeout(state.recordsLoadTimer);
+  state.recordsLoaded = false;
   listStatus.hidden = false;
   listStatus.textContent = "Carregando cadastros...";
   state.recordsLoadTimer = window.setTimeout(() => {
@@ -495,6 +678,7 @@ function subscribeToRecords() {
     collection(state.db, "cadastros"),
     (snapshot) => {
       window.clearTimeout(state.recordsLoadTimer);
+      state.recordsLoaded = true;
       state.records = snapshot.docs
         .map((recordDoc) => ({ id: recordDoc.id, ...recordDoc.data() }))
         .sort((a, b) => normalizeText(a.nomeCompleto).localeCompare(normalizeText(b.nomeCompleto), "pt-BR"));
@@ -502,6 +686,7 @@ function subscribeToRecords() {
     },
     (error) => {
       window.clearTimeout(state.recordsLoadTimer);
+      state.recordsLoaded = false;
       console.error("Falha ao ler os cadastros:", error.code);
       listStatus.hidden = false;
       listStatus.textContent = readableFirestoreError(error, "carregar os cadastros");
@@ -510,6 +695,8 @@ function subscribeToRecords() {
   );
 }
 
+// 19. Inicializa Firebase, autenticação e banco.
+// O arquivo firebase-config.js fica separado para facilitar a configuração do projeto.
 async function initializeFirebase() {
   try {
     const configModule = await import("./firebase-config.js");
@@ -530,35 +717,45 @@ async function initializeFirebase() {
     // Mantém a sessão somente nesta aba; cadastros continuam exclusivamente no Firestore.
     await setPersistence(state.auth, browserSessionPersistence);
 
-    onAuthStateChanged(state.auth, (user) => {
+    onAuthStateChanged(state.auth, async (user) => {
       if (!user) {
+        state.currentUserRole = ROLE_NORMAL;
+        state.pendingProfileRole = null;
+        document.body.removeAttribute("data-access-role");
         state.unsubscribe?.();
         state.unsubscribe = null;
         window.clearTimeout(state.recordsLoadTimer);
         state.records = [];
+        state.recordsLoaded = false;
+        $("#role-notice").hidden = true;
         loginScreen.hidden = false;
         appShell.hidden = true;
         setBusy(
           loginButton,
           false,
-          state.authMode === "register" ? "Criando conta..." : "Entrando...",
-          state.authMode === "register" ? "Criar conta e entrar" : "Entrar no sistema"
+          isRegisterMode() ? "Criando conta..." : "Entrando...",
+          loginButton.textContent || "Entrar no sistema"
         );
         return;
       }
 
-      const accountWasCreated = state.authMode === "register";
+      const accountWasCreated = isRegisterMode();
+      const resolvedRole = state.pendingProfileRole || roleFromUser(user);
+      await saveUserRole(user, resolvedRole);
+      state.pendingProfileRole = null;
+
       $("#user-email").textContent = user.email || "Conta autenticada";
       loginScreen.hidden = true;
       appShell.hidden = false;
       showLoginError("");
       resetAsNewForm();
+      applyAccessLevel(resolvedRole);
 
       // Abre a interface imediatamente; o Firestore carrega em segundo plano.
       subscribeToRecords();
 
       if (accountWasCreated) {
-        showToast("Conta criada com sucesso.");
+        showToast(`Conta criada com sucesso: ${roleLabel(resolvedRole)}.`);
         setAuthMode("login");
       }
     });
@@ -570,7 +767,12 @@ async function initializeFirebase() {
   }
 }
 
+// 20. Funções específicas do modo celular.
 function setMobileView(view) {
+  if (view === "list" && !isAdmin()) {
+    view = "form";
+  }
+
   workspace.dataset.mobileView = view;
   document.querySelectorAll(".view-switcher-button").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
@@ -578,17 +780,27 @@ function setMobileView(view) {
 }
 
 function openRecordsOnMobile() {
+  if (!isAdmin()) {
+    showToast("Consulta de cadastros disponível somente para contas de Administrador.", true);
+    return;
+  }
+
   setMobileView("list");
   $(".mobile-view-switcher").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+// 21. Evento de login/criação de conta pelo Firebase Authentication.
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.auth) return;
 
   showLoginError("");
-  const isRegister = state.authMode === "register";
-  const defaultButtonText = isRegister ? "Criar conta e entrar" : "Entrar no sistema";
+  const isRegister = isRegisterMode();
+  const isOwnerRegister = state.authMode === "register-admin";
+  const requestedRole = authModeRole();
+  const defaultButtonText = isRegister
+    ? isOwnerRegister ? "Criar conta de Administrador" : "Criar conta normal"
+    : "Entrar no sistema";
   setBusy(loginButton, true, isRegister ? "Criando conta..." : "Entrando...", defaultButtonText);
 
   try {
@@ -601,25 +813,37 @@ loginForm.addEventListener("submit", async (event) => {
         setBusy(loginButton, false, "Criando conta...", defaultButtonText);
         return;
       }
-      await withTimeout(createUserWithEmailAndPassword(state.auth, email, password));
+
+      if (isOwnerRegister && !validateOwnerAccessCode($("#owner-code").value.trim())) {
+        setBusy(loginButton, false, "Criando conta...", defaultButtonText);
+        return;
+      }
+
+      state.pendingProfileRole = requestedRole;
+      const credential = await withTimeout(createUserWithEmailAndPassword(state.auth, email, password));
+      await saveUserRole(credential.user, requestedRole);
     } else {
+      state.pendingProfileRole = null;
       await withTimeout(signInWithEmailAndPassword(state.auth, email, password));
     }
 
     loginForm.reset();
   } catch (error) {
+    state.pendingProfileRole = null;
     showLoginError(readableAuthError(error));
   } finally {
     setBusy(loginButton, false, isRegister ? "Criando conta..." : "Entrando...", defaultButtonText);
   }
 });
 
+// 22. Eventos dos botões e campos do formulário.
 document.querySelectorAll(".auth-mode-button").forEach((button) => {
   button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
 });
 
 $("#logout-button").addEventListener("click", async () => {
   if (!state.auth) return;
+  state.pendingProfileRole = null;
   await signOut(state.auth);
   resetAsNewForm();
   setAuthMode("login");
@@ -644,6 +868,7 @@ document.querySelectorAll(".view-switcher-button").forEach((button) => {
   button.addEventListener("click", () => setMobileView(button.dataset.view));
 });
 
+// 23. Salva novo cadastro ou atualiza cadastro existente no Firestore.
 cadastroForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.db || !cadastroForm.reportValidity() || !validateFamilyCounts()) return;
@@ -668,6 +893,10 @@ cadastroForm.addEventListener("submit", async (event) => {
 
   try {
     const payload = getFormData();
+    if (!validateUniquePersonRegistration(payload, editId)) {
+      return;
+    }
+
     if (editId) {
       await withTimeout(
         updateDoc(doc(state.db, "cadastros", editId), {
@@ -694,10 +923,10 @@ cadastroForm.addEventListener("submit", async (event) => {
         "firestore/timeout"
       );
       state.pendingCreateRef = null;
-      showToast("Cadastro salvo com sucesso.");
+      showToast(isAdmin() ? "Cadastro salvo com sucesso." : "Ficha salva com sucesso. A consulta fica disponível somente para Administradores.");
     }
     resetForm();
-    if (window.matchMedia("(max-width: 820px)").matches) {
+    if (isAdmin() && window.matchMedia("(max-width: 820px)").matches) {
       openRecordsOnMobile();
     }
   } catch (error) {
@@ -711,9 +940,16 @@ cadastroForm.addEventListener("submit", async (event) => {
   }
 });
 
+// 24. Exclusão de cadastro após confirmação do usuário.
 deleteDialog.addEventListener("close", async () => {
   if (deleteDialog.returnValue !== "confirm" || !state.deleteId || !state.db) {
     state.deleteId = null;
+    return;
+  }
+
+  if (!isAdmin()) {
+    state.deleteId = null;
+    showToast("Excluir cadastros é permitido somente para contas de Administrador.", true);
     return;
   }
 
@@ -733,6 +969,7 @@ deleteDialog.addEventListener("close", async () => {
   }
 });
 
+// 25. Inicialização da página.
 renderMonths();
 resetForm();
 setMobileView("form");

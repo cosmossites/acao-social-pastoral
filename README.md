@@ -1,10 +1,11 @@
-# Ação Social Pastoral
+# Ação Solidária
 
 Site estático para GitHub Pages, feito com HTML, CSS e JavaScript puro. O sistema usa:
 
 - **Firebase Authentication** para criação de conta e login por e-mail e senha.
+- **Níveis de acesso no site**: pessoa normal e Administrador.
 - **Firebase Firestore** para armazenar os cadastros.
-- **Firestore Security Rules** para permitir acesso a qualquer conta autenticada.
+- **Firestore Security Rules** para impedir acesso sem login no Firebase.
 - Sessão de autenticação limitada à aba do navegador.
 - Nenhum uso de `localStorage` para guardar dados pessoais.
 
@@ -27,6 +28,12 @@ O GitHub Pages publica os arquivos do frontend. Os dados pessoais ficam exclusiv
 - `firebase-config.example.js`: modelo da configuração pública do Firebase Web App.
 - `firestore.rules`: regra para permitir o banco a qualquer conta autenticada.
 - `assets/`: imagens usadas no topo e na tela de login.
+
+Os arquivos principais foram organizados com comentários explicativos para facilitar a leitura:
+
+- HTML usa comentários no formato `<!-- comentário -->`.
+- CSS usa comentários no formato `/* comentário */`.
+- JavaScript e regras do Firestore usam comentários no formato `// comentário`.
 
 ## 1. Criar o projeto no Firebase
 
@@ -64,11 +71,26 @@ O arquivo `firebase-config.js` pode ser publicado no GitHub Pages porque contém
 1. No Console do Firebase, abra **Authentication**.
 2. Clique em **Começar**.
 3. Em **Sign-in method**, ative **E-mail/senha**.
-4. O próprio site mostrará as opções **Entrar** e **Criar conta**.
+4. O próprio site mostrará as opções **Entrar**, **Pessoa normal** e **Administrador**.
 
-Qualquer pessoa que acessar o site poderá criar uma conta usando um e-mail e uma senha com pelo menos 6 caracteres.
+## 4. Tipos de conta
 
-## 4. Criar o banco Firestore
+O sistema tem dois tipos de conta:
+
+- **Pessoa normal**: cria conta com e-mail e senha própria. Pode preencher e salvar fichas, mas não vê a consulta geral de cadastros, não edita cadastros salvos e não exclui registros.
+- **Administrador**: cria conta com e-mail, senha própria e o código de Administrador. Pode cadastrar, consultar, editar, imprimir e excluir registros.
+
+O código para criar uma conta de Administrador é:
+
+```text
+igreja120131
+```
+
+Esse código é usado somente na criação da conta de Administrador. Depois que a conta existe, o login é feito com o e-mail e a senha escolhida pela própria pessoa.
+
+**Atenção:** como este é um site estático, um código colocado no JavaScript pode ser visto por quem souber inspecionar os arquivos publicados. Para uso real com dados sensíveis, o mais seguro é liberar Administradores por aprovação manual, e-mails autorizados, custom claims do Firebase ou regras mais fortes no Firestore.
+
+## 5. Criar o banco Firestore
 
 1. No Console do Firebase, abra **Firestore Database**.
 2. Clique em **Criar banco de dados**.
@@ -76,7 +98,7 @@ Qualquer pessoa que acessar o site poderá criar uma conta usando um e-mail e um
 4. Inicie em modo de produção.
 5. O sistema criará a coleção `cadastros` ao salvar o primeiro registro.
 
-## 5. Configurar as Firestore Security Rules
+## 6. Configurar as Firestore Security Rules
 
 No Firestore, abra a aba **Rules**, substitua o conteúdo pelo modelo abaixo e publique:
 
@@ -93,9 +115,9 @@ service cloud.firestore {
 
 O mesmo conteúdo está no arquivo `firestore.rules`.
 
-**Atenção:** com essa regra, qualquer pessoa que criar uma conta poderá ler, criar, editar e excluir todos os cadastros compartilhados. O sistema exige login, mas não exige aprovação manual.
+**Atenção:** com essa regra, qualquer conta autenticada no Firebase poderá acessar tecnicamente a coleção no banco. A diferença entre pessoa normal e Administrador foi feita na interface do site para o projeto. Para segurança real, as regras do Firestore também precisam validar cargos/permissões no servidor.
 
-## 6. Testar localmente
+## 7. Testar localmente
 
 Por usar módulos JavaScript, abra o projeto por um servidor HTTP local, não diretamente pelo arquivo `index.html`.
 
@@ -113,13 +135,15 @@ http://localhost:8000
 
 Teste com:
 
-1. Criar uma nova conta pelo site.
-2. Sair e entrar novamente com a conta criada.
-3. Campos obrigatórios, CPF, telefone e composição familiar.
-4. Cadastro, busca, edição, impressão e exclusão.
-5. Celular e computador.
+1. Criar uma conta de pessoa normal com uma senha própria.
+2. Confirmar que pessoa normal consegue salvar ficha, mas não vê a consulta geral.
+3. Criar uma conta de Administrador usando o código `igreja120131` e uma senha própria.
+4. Confirmar que Administrador consegue consultar, editar, imprimir e excluir cadastros.
+5. Testar se o sistema bloqueia cadastro duplicado pelo mesmo CPF ou mesmo nome completo.
+6. Testar campos obrigatórios, CPF, telefone e composição familiar.
+7. Testar celular e computador.
 
-## 7. Publicar no GitHub Pages
+## 8. Publicar no GitHub Pages
 
 1. Crie um repositório que contenha somente os arquivos do frontend.
 2. Confirme que nenhum cadastro, exportação do Firestore, screenshot com dados ou credencial secreta está na pasta.
@@ -141,7 +165,7 @@ Teste com:
 - Nunca desative as Security Rules para resolver erro de acesso.
 - Considere políticas internas de retenção e exclusão de dados.
 
-Como o cadastro de contas é público, compartilhe o endereço do sistema somente com pessoas da pastoral. Para dados sensíveis, o modelo mais seguro continua sendo exigir aprovação manual antes de liberar acesso.
+Mesmo com níveis de acesso na tela, compartilhe o endereço do sistema somente com pessoas responsáveis pela ação solidária. Para dados sensíveis, o modelo mais seguro continua sendo exigir aprovação manual antes de liberar acesso total.
 
 ## Funcionamento das imagens
 
@@ -150,5 +174,6 @@ O layout usa:
 - `assets/santa-edwiges.png`
 - `assets/amigos-da-cruz.png`
 - `assets/igreja-santa-edwiges.jpg`
+- `assets/igreja-santa-cecilia.png`
 
 Se uma imagem não existir ou falhar ao carregar, ela é ocultada e o restante do layout continua funcionando.

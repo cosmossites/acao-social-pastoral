@@ -1,6 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Coleção onde ficam as fichas cadastradas pelo sistema.
+    // request.auth != null significa: só usuários logados podem acessar.
+    // A tela do site separa pessoa normal e Administrador.
+    // Esta regra ainda libera a coleção para qualquer usuário autenticado.
+    // Para uso real com dados sensíveis, o ideal é reforçar estas regras com
+    // e-mails autorizados, custom claims, aprovação manual ou permissões administrativas.
     match /cadastros/{cadastroId} {
       allow read, create, update, delete: if request.auth != null;
     }

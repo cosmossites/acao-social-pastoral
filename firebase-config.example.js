@@ -1,17 +1,21 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+// firebase-config.example.js
+// Modelo para configurar o Firebase no projeto.
+//
+// Para usar:
+// 1. Copie este arquivo.
+// 2. Renomeie a cópia para firebase-config.js.
+// 3. Troque os valores abaixo pelos dados do seu Firebase Web App.
+//
+// Importante:
+// Estes dados do Firebase Web App são públicos.
+// A segurança real fica no Firebase Authentication e nas Firestore Security Rules.
+// Nunca coloque senhas, chaves privadas ou arquivos de conta de serviço aqui.
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyDKjC6xs40MYQHRp0ys0lrJVTRjAtk-2qM",
-  authDomain: "acao-social-pastoral.firebaseapp.com",
-  projectId: "acao-social-pastoral",
-  storageBucket: "acao-social-pastoral.firebasestorage.app",
-  messagingSenderId: "619338490281",
-  appId: "1:619338490281:web:4b5de5dec0ca76143fe4b8"
+export const firebaseConfig = {
+  apiKey: "SUA_API_KEY",
+  authDomain: "SEU_PROJETO.firebaseapp.com",
+  projectId: "SEU_PROJETO",
+  storageBucket: "SEU_PROJETO.firebasestorage.app",
+  messagingSenderId: "SEU_MESSAGING_SENDER_ID",
+  appId: "SEU_APP_ID"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
