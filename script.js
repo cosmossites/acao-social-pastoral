@@ -8,8 +8,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/fireba
 import {
   browserSessionPersistence,
   createUserWithEmailAndPassword,
+  deleteUser,
   getAuth,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
   signOut,
@@ -66,6 +68,7 @@ const appShell = $("#app-shell");
 const loginForm = $("#login-form");
 const loginButton = $("#login-button");
 const loginError = $("#login-error");
+const resetPasswordButton = $("#reset-password-button");
 const setupAlert = $("#setup-alert");
 const passwordConfirmField = $("#password-confirm-field");
 const ownerCodeField = $("#owner-code-field");
@@ -75,6 +78,7 @@ const childrenEmpty = $("#children-empty");
 const recordsList = $("#records-list");
 const listStatus = $("#list-status");
 const deleteDialog = $("#delete-dialog");
+const deleteAccountButton = $("#delete-account-button");
 const workspace = $(".workspace");
 const AUTH_TIMEOUT_MS = 10000;
 const DATABASE_TIMEOUT_MS = 20000;
@@ -162,7 +166,9 @@ function readableAuthError(error) {
     "auth/invalid-email": "Informe um e-mail válido.",
     "auth/missing-password": "Informe a senha.",
     "auth/operation-not-allowed": "A criação de contas ainda não foi ativada no Firebase Authentication.",
+    "auth/requires-recent-login": "Por segurança, saia e entre novamente antes de apagar sua conta.",
     "auth/too-many-requests": "Muitas tentativas. Aguarde alguns minutos e tente novamente.",
+    "auth/user-not-found": "Não existe conta cadastrada com este e-mail.",
     "auth/weak-password": "A senha precisa ter pelo menos 6 caracteres.",
     "auth/network-request-failed": "Não foi possível conectar ao Firebase. Verifique a internet."
   };
@@ -234,6 +240,28 @@ function roleFromUser(user) {
 async function saveUserRole(user, role) {
   if (!user || user.displayName === role) return;
   await withTimeout(updateProfile(user, { displayName: role }), AUTH_TIMEOUT_MS, "auth/timeout");
+}
+
+async function sendPasswordReset() {
+  if (!state.auth) return;
+
+  showLoginError("");
+  const email = $("#login-email").value.trim();
+  if (!email) {
+    showLoginError("Digite seu e-mail para receber a redefinição de senha.");
+    $("#login-email").focus();
+    return;
+  }
+
+  setBusy(resetPasswordButton, true, "Enviando...", "Esqueci minha senha");
+  try {
+    await withTimeout(sendPasswordResetEmail(state.auth, email), AUTH_TIMEOUT_MS, "auth/timeout");
+    showToast("Enviamos um e-mail para redefinir sua senha. Verifique sua caixa de entrada.");
+  } catch (error) {
+    showLoginError(readableAuthError(error));
+  } finally {
+    setBusy(resetPasswordButton, false, "Enviando...", "Esqueci minha senha");
+  }
 }
 
 function applyAccessLevel(role) {
@@ -789,6 +817,31 @@ function openRecordsOnMobile() {
   $(".mobile-view-switcher").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+async function deleteCurrentAccount() {
+  const user = state.auth?.currentUser;
+  if (!user) return;
+
+  const confirmed = window.confirm(
+    "Apagar sua conta de acesso?\n\nIsso remove o login deste e-mail no Firebase Authentication e permite criar uma nova conta com o mesmo e-mail depois. Os cadastros salvos no banco não serão apagados."
+  );
+  if (!confirmed) return;
+
+  setBusy(deleteAccountButton, true, "Apagando...", "Apagar conta");
+  try {
+    state.unsubscribe?.();
+    state.unsubscribe = null;
+    await withTimeout(deleteUser(user), AUTH_TIMEOUT_MS, "auth/timeout");
+    state.pendingProfileRole = null;
+    resetAsNewForm();
+    setAuthMode("login");
+    showToast("Conta de acesso apagada. Agora este e-mail pode criar uma nova conta.");
+  } catch (error) {
+    showToast(readableAuthError(error), true);
+  } finally {
+    setBusy(deleteAccountButton, false, "Apagando...", "Apagar conta");
+  }
+}
+
 // 21. Evento de login/criação de conta pelo Firebase Authentication.
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -841,6 +894,8 @@ document.querySelectorAll(".auth-mode-button").forEach((button) => {
   button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
 });
 
+resetPasswordButton.addEventListener("click", sendPasswordReset);
+
 $("#logout-button").addEventListener("click", async () => {
   if (!state.auth) return;
   state.pendingProfileRole = null;
@@ -848,6 +903,8 @@ $("#logout-button").addEventListener("click", async () => {
   resetAsNewForm();
   setAuthMode("login");
 });
+
+deleteAccountButton.addEventListener("click", deleteCurrentAccount);
 
 $("#cpf").addEventListener("input", (event) => {
   event.target.value = formatCpf(event.target.value);

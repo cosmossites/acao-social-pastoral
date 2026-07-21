@@ -167,6 +167,14 @@ Teste com:
 
 Mesmo com níveis de acesso na tela, compartilhe o endereço do sistema somente com pessoas responsáveis pela ação solidária. Para dados sensíveis, o modelo mais seguro continua sendo exigir aprovação manual antes de liberar acesso total.
 
+## Recuperar ou apagar conta de acesso
+
+Na tela de entrada existe o botão **Esqueci minha senha**. A pessoa deve digitar o e-mail da conta e clicar nesse botão para receber um e-mail de redefinição de senha pelo Firebase Authentication.
+
+Quando a pessoa ainda consegue entrar, existe o botão **Apagar conta** no topo do sistema. Esse botão apaga somente o login do Firebase Authentication e libera aquele mesmo e-mail para criar uma nova conta depois. Os cadastros salvos no Firestore não são apagados por esse botão.
+
+Por segurança, um site estático não consegue apagar qualquer conta apenas digitando um e-mail. Se a pessoa esqueceu a senha e também não consegue acessar o e-mail de recuperação, alguém com acesso ao Console do Firebase precisa apagar essa conta manualmente em **Authentication > Users**.
+
 ## Funcionamento das imagens
 
 O layout usa:

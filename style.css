@@ -376,6 +376,26 @@ textarea:disabled {
   margin-top: 8px;
 }
 
+.auth-secondary-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--green-800);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button:hover {
+  color: var(--green-950);
+}
+
 .privacy-note {
   margin: 24px 0 0;
   color: var(--muted);
